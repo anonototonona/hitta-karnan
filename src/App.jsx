@@ -1,6 +1,36 @@
 import { useState, useEffect, useRef } from "react";
-import { getMockInitial, getMockClarify, getMockSummary, getMockSolutions } from "./lib/mockAnalysis";
 import "./styles/theme.css";
+
+// API-anrop till Claude via Vercel Function
+async function callClaudeAPI(problem, stage) {
+  try {
+    const response = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ problem, stage }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.error || "Unknown error");
+    }
+
+    // Return the data from Claude API
+    return {
+      stage: stage,
+      category: "claude-api",
+      ...data.data,
+    };
+  } catch (error) {
+    console.error("API Error:", error);
+    throw error;
+  }
+}
 
 /* ─────────────────────────────────────────────
    ICONS
@@ -545,11 +575,20 @@ function AnalysisView({ problem, onReset }) {
       await new Promise(r => setTimeout(r, 900));
       if (cancelled) return;
       setMessages([{ type:"loading", content:"Läser mellan raderna…" }]);
-      const data = await getMockInitial(problem);
-      if (cancelled) return;
-      setCategory(data.category);
-      setMessages([{ type:"assistant", stageType:"initial", stageData:data }]);
-      setStage("initial");
+      try {
+        const data = await callClaudeAPI(problem, "initial");
+        if (cancelled) return;
+        setCategory(data.category);
+        setMessages([{ type:"assistant", stageType:"initial", stageData:data }]);
+        setStage("initial");
+      } catch (error) {
+        console.error("Failed to get initial analysis:", error);
+        setMessages([{
+          type:"assistant",
+          stageType:"error",
+          stageData:{ error: "Kunde inte analysera problemet. Kontrollera att Claude API är konfigurerad." }
+        }]);
+      }
     })();
     return () => { cancelled = true; };
   }, [problem]);
@@ -557,15 +596,25 @@ function AnalysisView({ problem, onReset }) {
     const isSummaryReq = /sammanfattning|visa sammanfattning|klar|redo/.test(text.toLowerCase());
     if (stage === "initial" || (stage === "clarify" && !isSummaryReq && clarifyCount < 1)) {
       setMessages(prev => [...prev.filter(m => m.type!=="loading"), { type:"user", content:text }, { type:"loading", content:"Markerar det som verkligen betyder något…" }]);
-      const data = await getMockClarify(category);
-      setMessages(prev => [...prev.filter(m => m.type!=="loading"), { type:"assistant", stageType:"clarify", stageData:data }]);
-      setStage("clarify");
-      setClarifyCount(c => c + 1);
+      try {
+        const data = await callClaudeAPI(text, "clarify");
+        setMessages(prev => [...prev.filter(m => m.type!=="loading"), { type:"assistant", stageType:"clarify", stageData:data }]);
+        setStage("clarify");
+        setClarifyCount(c => c + 1);
+      } catch (error) {
+        console.error("Failed to clarify:", error);
+        setMessages(prev => [...prev.filter(m => m.type!=="loading"), { type:"assistant", stageType:"error", stageData:{ error: "Kunde inte fortsätta analysen." } }]);
+      }
     } else {
       setMessages(prev => [...prev.filter(m => m.type!=="loading"), { type:"user", content:text }, { type:"loading", content:"Sammanfattar kärnan…" }]);
-      const data = await getMockSummary(category);
-      setMessages(prev => [...prev.filter(m => m.type!=="loading"), { type:"assistant", stageType:"summary", stageData:data }]);
-      setStage("summary");
+      try {
+        const data = await callClaudeAPI(text, "summary");
+        setMessages(prev => [...prev.filter(m => m.type!=="loading"), { type:"assistant", stageType:"summary", stageData:data }]);
+        setStage("summary");
+      } catch (error) {
+        console.error("Failed to summarize:", error);
+        setMessages(prev => [...prev.filter(m => m.type!=="loading"), { type:"assistant", stageType:"error", stageData:{ error: "Kunde inte skapa sammanfattning." } }]);
+      }
     }
   };
   const handleShowSolutions = async () => {
