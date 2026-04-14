@@ -9,13 +9,13 @@
  * Body: { problem: string, stage: "initial" | "clarify" | "summary" | "solutions" }
  */
 
-const Anthropic = require("@anthropic-ai/sdk").default;
+import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   // Only accept POST requests
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
